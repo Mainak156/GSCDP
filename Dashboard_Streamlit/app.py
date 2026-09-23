@@ -1,7 +1,6 @@
 import os
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 
 st.set_page_config(
@@ -20,39 +19,148 @@ DATASET_PATH = os.path.join(
     "APL_Logistics.csv"
 )
 
+ACTUAL_COL = "Days for shipping (real)"
+SCHEDULED_COL = "Days for shipment (scheduled)"
+
+
+def classify_delivery(delay):
+    if delay < 0:
+        return "Early"
+    elif delay == 0:
+        return "On-time"
+    else:
+        return "Delayed"
+
 
 @st.cache_data
 def load_data():
+
     df = pd.read_csv(
         DATASET_PATH,
         encoding="latin1"
     )
 
+    raw_rows = len(df)
+
     df.dropna(inplace=True)
 
-    actual_col = "Days for shipping (real)"
-    scheduled_col = "Days for shipment (scheduled)"
+    rows_after_cleaning = len(df)
+
+    categorical_columns = [
+        "Shipping Mode",
+        "Order Region",
+        "Market",
+        "Customer Segment",
+        "Order Country"
+    ]
+
+    for column in categorical_columns:
+        df[column] = (
+            df[column]
+            .astype(str)
+            .str.strip()
+        )
+
+    df[ACTUAL_COL] = pd.to_numeric(
+        df[ACTUAL_COL],
+        errors="coerce"
+    )
+
+    df[SCHEDULED_COL] = pd.to_numeric(
+        df[SCHEDULED_COL],
+        errors="coerce"
+    )
+
+    invalid_duration_mask = (
+        df[[ACTUAL_COL, SCHEDULED_COL]]
+        .isna()
+        .any(axis=1)
+        |
+        (df[ACTUAL_COL] < 0)
+        |
+        (df[SCHEDULED_COL] < 0)
+    )
+
+    invalid_duration_rows = int(
+        invalid_duration_mask.sum()
+    )
+
+    if invalid_duration_rows > 0:
+
+        df = df[
+            df[ACTUAL_COL].notna()
+            &
+            df[SCHEDULED_COL].notna()
+            &
+            (df[ACTUAL_COL] >= 0)
+            &
+            (df[SCHEDULED_COL] >= 0)
+        ].copy()
 
     df["Delay Gap"] = (
-        df[actual_col] - df[scheduled_col]
+        df[ACTUAL_COL]
+        -
+        df[SCHEDULED_COL]
     )
-
-    def classify_delivery(delay):
-        if delay < 0:
-            return "Early"
-        elif delay == 0:
-            return "On-time"
-        else:
-            return "Delayed"
 
     df["Delivery Timing"] = (
-        df["Delay Gap"].apply(classify_delivery)
+        df["Delay Gap"]
+        .apply(classify_delivery)
     )
 
-    return df
+    quality_summary = {
+        "Raw Records": raw_rows,
+        "Records After Missing-Value Cleaning": rows_after_cleaning,
+        "Records Used for Analysis": len(df),
+        "Records Removed": raw_rows - len(df),
+        "Invalid Shipping-Duration Records":
+            invalid_duration_rows
+    }
+
+    return df, quality_summary
 
 
-df = load_data()
+def apply_filters(data):
+
+    filtered_df = data.copy()
+
+    if st.session_state.shipping_mode_filter:
+
+        filtered_df = filtered_df[
+            filtered_df["Shipping Mode"].isin(
+                st.session_state.shipping_mode_filter
+            )
+        ]
+
+    if st.session_state.region_filter:
+
+        filtered_df = filtered_df[
+            filtered_df["Order Region"].isin(
+                st.session_state.region_filter
+            )
+        ]
+
+    if st.session_state.market_filter:
+
+        filtered_df = filtered_df[
+            filtered_df["Market"].isin(
+                st.session_state.market_filter
+            )
+        ]
+
+    if st.session_state.segment_filter:
+
+        filtered_df = filtered_df[
+            filtered_df["Customer Segment"].isin(
+                st.session_state.segment_filter
+            )
+        ]
+
+    return filtered_df
+
+
+df, quality_summary = load_data()
+
 
 st.title(
     "🚚 Global Supply Chain Delivery Performance Dashboard"
@@ -62,93 +170,109 @@ st.markdown(
     """
     **Delivery Performance, Delay Risk, and Logistics Efficiency Analysis**
 
-    Analyze shipment delays, delivery risk, shipping-mode performance,
-    customer segments, regions, and markets.
+    Analyze shipment delivery performance, delay risk, shipping-mode
+    efficiency, customer segments, regions, countries, and markets.
     """
 )
 
-st.sidebar.header("🔎 Dashboard Filters")
 
-shipping_modes = sorted(
-    df["Shipping Mode"].dropna().unique()
+st.sidebar.header(
+    "🔎 Dashboard Filters"
 )
 
-selected_shipping_modes = st.sidebar.multiselect(
+
+st.sidebar.multiselect(
     "Shipping Mode",
-    options=shipping_modes,
-    default=[]
+    options=sorted(
+        df["Shipping Mode"].unique()
+    ),
+    default=[],
+    key="shipping_mode_filter"
 )
 
-regions = sorted(
-    df["Order Region"].dropna().unique()
-)
 
-selected_regions = st.sidebar.multiselect(
+st.sidebar.multiselect(
     "Order Region",
-    options=regions,
-    default=[]
+    options=sorted(
+        df["Order Region"].unique()
+    ),
+    default=[],
+    key="region_filter"
 )
 
-markets = sorted(
-    df["Market"].dropna().unique()
-)
 
-selected_markets = st.sidebar.multiselect(
+st.sidebar.multiselect(
     "Market",
-    options=markets,
-    default=[]
+    options=sorted(
+        df["Market"].unique()
+    ),
+    default=[],
+    key="market_filter"
 )
 
-customer_segments = sorted(
-    df["Customer Segment"].dropna().unique()
-)
 
-selected_customer_segments = st.sidebar.multiselect(
+st.sidebar.multiselect(
     "Customer Segment",
-    options=customer_segments,
-    default=[]
+    options=sorted(
+        df["Customer Segment"].unique()
+    ),
+    default=[],
+    key="segment_filter"
 )
 
-filtered_df = df.copy()
 
-if selected_shipping_modes:
-    filtered_df = filtered_df[
-        filtered_df["Shipping Mode"].isin(
-            selected_shipping_modes
-        )
-    ]
+with st.sidebar.expander(
+    "Data Quality & Methodology"
+):
 
-if selected_regions:
-    filtered_df = filtered_df[
-        filtered_df["Order Region"].isin(
-            selected_regions
-        )
-    ]
+    st.write(
+        f"Raw records: "
+        f"{quality_summary['Raw Records']:,}"
+    )
 
-if selected_markets:
-    filtered_df = filtered_df[
-        filtered_df["Market"].isin(
-            selected_markets
-        )
-    ]
+    st.write(
+        f"Records used: "
+        f"{quality_summary['Records Used for Analysis']:,}"
+    )
 
-if selected_customer_segments:
-    filtered_df = filtered_df[
-        filtered_df["Customer Segment"].isin(
-            selected_customer_segments
-        )
-    ]
+    st.write(
+        f"Records removed: "
+        f"{quality_summary['Records Removed']:,}"
+    )
+
+    st.write(
+        f"Invalid shipping-duration records: "
+        f"{quality_summary['Invalid Shipping-Duration Records']:,}"
+    )
+
+    st.caption(
+        "Delay Gap = actual shipping days − scheduled shipping days."
+    )
+
+    st.caption(
+        "Negative Delay Gap = Early | "
+        "Zero = On-time | "
+        "Positive = Delayed"
+    )
+
+
+filtered_df = apply_filters(df)
+
 
 if filtered_df.empty:
+
     st.warning(
         "No shipments match the selected filters. "
         "Please adjust the filters."
     )
+
     st.stop()
+
 
 st.caption(
     f"Showing {len(filtered_df):,} shipments"
 )
+
 
 tab1, tab2, tab3, tab4 = st.tabs(
     [
@@ -159,70 +283,88 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ]
 )
 
+
 with tab1:
 
-    st.header("📊 Delivery Performance Overview")
+    st.header(
+        "📊 Delivery Performance Overview"
+    )
 
-    total_shipments = len(filtered_df)
+    total_shipments = len(
+        filtered_df
+    )
 
-    on_time_shipments = (
-        filtered_df["Delivery Timing"] == "On-time"
-    ).sum()
+    on_time_shipments = int(
+        (
+            filtered_df["Delivery Timing"]
+            == "On-time"
+        ).sum()
+    )
 
-    delayed_shipments = (
-        filtered_df["Delivery Timing"] == "Delayed"
-    ).sum()
+    delayed_shipments = int(
+        (
+            filtered_df["Delivery Timing"]
+            == "Delayed"
+        ).sum()
+    )
 
-    early_shipments = (
-        filtered_df["Delivery Timing"] == "Early"
-    ).sum()
+    early_shipments = int(
+        (
+            filtered_df["Delivery Timing"]
+            == "Early"
+        ).sum()
+    )
 
     on_time_rate = (
         on_time_shipments
-        / total_shipments
-        * 100
+        /
+        total_shipments
+        *
+        100
     )
 
     late_rate = (
         delayed_shipments
-        / total_shipments
-        * 100
+        /
+        total_shipments
+        *
+        100
     )
 
     average_delay = (
-        filtered_df["Delay Gap"].mean()
+        filtered_df["Delay Gap"]
+        .mean()
     )
 
-    late_risk_ratio = (
-        filtered_df["Late_delivery_risk"].mean()
-        * 100
+    dataset_risk_ratio = (
+        filtered_df["Late_delivery_risk"]
+        .mean()
+        *
+        100
     )
 
     col1, col2, col3, col4 = st.columns(4)
 
-    with col1:
-        st.metric(
-            "Total Shipments",
-            f"{total_shipments:,}"
-        )
+    col1.metric(
+        "Total Shipments",
+        f"{total_shipments:,}"
+    )
 
-    with col2:
-        st.metric(
-            "On-Time Delivery",
-            f"{on_time_rate:.2f}%"
-        )
+    col2.metric(
+        "On-Time Delivery",
+        f"{on_time_rate:.2f}%"
+    )
 
-    with col3:
-        st.metric(
-            "Late Delivery",
-            f"{late_rate:.2f}%"
-        )
+    col3.metric(
+        "Late Delivery",
+        f"{late_rate:.2f}%"
+    )
 
-    with col4:
-        st.metric(
-            "Average Delay",
-            f"{average_delay:.2f} days"
-        )
+    col4.metric(
+        "Average Delay",
+        f"{average_delay:.2f} days"
+    )
+
 
     delivery_timing = (
         filtered_df["Delivery Timing"]
@@ -235,34 +377,48 @@ with tab1:
             ],
             fill_value=0
         )
-        .reset_index()
+        .rename_axis(
+            "Delivery Timing"
+        )
+        .reset_index(
+            name="Shipments"
+        )
     )
 
-    delivery_timing.columns = [
-        "Delivery Timing",
-        "Shipments"
-    ]
+    delivery_timing[
+        "Percentage (%)"
+    ] = (
+        delivery_timing["Shipments"]
+        /
+        total_shipments
+        *
+        100
+    )
+
 
     fig_delivery = px.bar(
         delivery_timing,
         x="Delivery Timing",
         y="Shipments",
-        title="Delivery Timing Distribution",
-        text="Shipments"
+        text="Shipments",
+        title="Delivery Timing Distribution"
     )
 
     fig_delivery.update_layout(
         height=400
     )
 
+
     st.plotly_chart(
         fig_delivery,
         use_container_width=True
     )
 
+
     st.subheader(
         "Delivery Performance Summary"
     )
+
 
     performance_summary = pd.DataFrame(
         {
@@ -274,7 +430,8 @@ with tab1:
                 "On-Time Delivery Rate (%)",
                 "Late Delivery Rate (%)",
                 "Average Delivery Delay (Days)",
-                "Late Delivery Risk Ratio (%)"
+                "Late Delivery Risk Ratio (%)",
+                "Dataset Late_delivery_risk (%)"
             ],
             "Value": [
                 total_shipments,
@@ -284,17 +441,103 @@ with tab1:
                 on_time_rate,
                 late_rate,
                 average_delay,
-                late_risk_ratio
+                late_rate,
+                dataset_risk_ratio
             ]
         }
     )
 
-    performance_summary["Value"] = (
-        performance_summary["Value"].round(2)
-    )
 
     st.dataframe(
-        performance_summary,
+        performance_summary.round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    st.subheader(
+        "Customer Segment Impact Analysis"
+    )
+
+
+    segment_performance = (
+        filtered_df
+        .groupby(
+            "Customer Segment"
+        )
+        .agg(
+            Total_Shipments=(
+                "Customer Segment",
+                "size"
+            ),
+            Average_Delay=(
+                "Delay Gap",
+                "mean"
+            ),
+            Delayed_Shipments=(
+                "Delivery Timing",
+                lambda x:
+                (x == "Delayed").sum()
+            ),
+            At_Risk_Shipments=(
+                "Late_delivery_risk",
+                "sum"
+            )
+        )
+        .reset_index()
+    )
+
+
+    segment_performance[
+        "Delay Frequency (%)"
+    ] = (
+        segment_performance[
+            "Delayed_Shipments"
+        ]
+        /
+        segment_performance[
+            "Total_Shipments"
+        ]
+        *
+        100
+    )
+
+
+    segment_performance[
+        "SLA Risk Exposure (%)"
+    ] = (
+        segment_performance[
+            "At_Risk_Shipments"
+        ]
+        /
+        segment_performance[
+            "Total_Shipments"
+        ]
+        *
+        100
+    )
+
+
+    fig_segment = px.bar(
+        segment_performance.sort_values(
+            "Delay Frequency (%)",
+            ascending=False
+        ),
+        x="Customer Segment",
+        y="Delay Frequency (%)",
+        text_auto=".2f",
+        title="Customer Segment Delay Frequency"
+    )
+
+
+    st.plotly_chart(
+        fig_segment,
+        use_container_width=True
+    )
+
+
+    st.dataframe(
+        segment_performance.round(2),
         use_container_width=True,
         hide_index=True
     )
@@ -302,34 +545,58 @@ with tab1:
 
 with tab2:
 
-    st.header("⚠️ Delay Risk Analysis")
+    st.header(
+        "⚠️ Delay Risk Analysis"
+    )
+
+
+    risk_distribution = (
+        filtered_df[
+            "Late_delivery_risk"
+        ]
+        .value_counts()
+        .sort_index()
+        .rename_axis(
+            "Late Delivery Risk"
+        )
+        .reset_index(
+            name="Shipments"
+        )
+    )
+
+
+    risk_distribution[
+        "Risk Label"
+    ] = (
+        risk_distribution[
+            "Late Delivery Risk"
+        ]
+        .map(
+            {
+                0: "No Risk",
+                1: "At Risk"
+            }
+        )
+    )
+
+
+    risk_distribution[
+        "Percentage (%)"
+    ] = (
+        risk_distribution[
+            "Shipments"
+        ]
+        /
+        total_shipments
+        *
+        100
+    )
+
 
     col1, col2 = st.columns(2)
 
+
     with col1:
-
-        risk_distribution = (
-            filtered_df["Late_delivery_risk"]
-            .value_counts()
-            .sort_index()
-            .reset_index()
-        )
-
-        risk_distribution.columns = [
-            "Late Delivery Risk",
-            "Shipments"
-        ]
-
-        risk_distribution["Risk Label"] = (
-            risk_distribution[
-                "Late Delivery Risk"
-            ].map(
-                {
-                    0: "No Risk",
-                    1: "At Risk"
-                }
-            )
-        )
 
         fig_risk = px.pie(
             risk_distribution,
@@ -343,6 +610,7 @@ with tab2:
             use_container_width=True
         )
 
+
     with col2:
 
         fig_delay = px.histogram(
@@ -351,7 +619,8 @@ with tab2:
             nbins=20,
             title="Delivery Delay Gap Distribution",
             labels={
-                "Delay Gap": "Delay Gap (Days)"
+                "Delay Gap":
+                "Delay Gap (Days)"
             }
         )
 
@@ -365,48 +634,57 @@ with tab2:
             use_container_width=True
         )
 
+
     st.subheader(
         "Late Delivery Risk Distribution"
     )
 
-    risk_table = (
-        filtered_df
-        .groupby("Late_delivery_risk")
-        .agg(
-            Total_Shipments=(
-                "Late_delivery_risk",
-                "size"
-            )
-        )
-        .reset_index()
-    )
-
-    risk_table["Risk Label"] = (
-        risk_table["Late_delivery_risk"].map(
-            {
-                0: "No Risk",
-                1: "At Risk"
-            }
-        )
-    )
-
-    risk_table["Percentage (%)"] = (
-        risk_table["Total_Shipments"]
-        / total_shipments
-        * 100
-    )
-
-    risk_table = risk_table[
-        [
-            "Late_delivery_risk",
-            "Risk Label",
-            "Total_Shipments",
-            "Percentage (%)"
-        ]
-    ]
 
     st.dataframe(
-        risk_table.round(2),
+        risk_distribution[
+            [
+                "Late Delivery Risk",
+                "Risk Label",
+                "Shipments",
+                "Percentage (%)"
+            ]
+        ].round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    st.subheader(
+        "Delay Gap Summary"
+    )
+
+
+    delay_summary = pd.DataFrame(
+        {
+            "Metric": [
+                "Minimum Delay Gap (Days)",
+                "Average Delay Gap (Days)",
+                "Maximum Delay Gap (Days)",
+                "Delayed Shipments (%)"
+            ],
+            "Value": [
+                filtered_df[
+                    "Delay Gap"
+                ].min(),
+                filtered_df[
+                    "Delay Gap"
+                ].mean(),
+                filtered_df[
+                    "Delay Gap"
+                ].max(),
+                late_rate
+            ]
+        }
+    )
+
+
+    st.dataframe(
+        delay_summary.round(2),
         use_container_width=True,
         hide_index=True
     )
@@ -414,11 +692,16 @@ with tab2:
 
 with tab3:
 
-    st.header("🚚 Shipping Mode Comparison")
+    st.header(
+        "🚚 Shipping Mode Comparison"
+    )
+
 
     mode_performance = (
         filtered_df
-        .groupby("Shipping Mode")
+        .groupby(
+            "Shipping Mode"
+        )
         .agg(
             Total_Shipments=(
                 "Shipping Mode",
@@ -430,13 +713,13 @@ with tab3:
             ),
             Delayed_Shipments=(
                 "Delivery Timing",
-                lambda x: (
-                    x == "Delayed"
-                ).sum()
+                lambda x:
+                (x == "Delayed").sum()
             )
         )
         .reset_index()
     )
+
 
     mode_performance[
         "Delay Frequency (%)"
@@ -444,31 +727,49 @@ with tab3:
         mode_performance[
             "Delayed_Shipments"
         ]
-        / mode_performance[
+        /
+        mode_performance[
             "Total_Shipments"
         ]
-        * 100
+        *
+        100
     )
+
 
     mode_performance[
         "SLA Compliance (%)"
     ] = (
         100
-        - mode_performance[
+        -
+        mode_performance[
             "Delay Frequency (%)"
         ]
     )
 
+
+    mode_performance[
+        "Shipping Mode Efficiency Index"
+    ] = (
+        mode_performance[
+            "SLA Compliance (%)"
+        ]
+    )
+
+
     col1, col2 = st.columns(2)
+
 
     with col1:
 
         fig_mode_delay = px.bar(
-            mode_performance,
+            mode_performance.sort_values(
+                "Average_Delay",
+                ascending=False
+            ),
             x="Shipping Mode",
             y="Average_Delay",
-            title="Mode-wise Delay Performance",
             text_auto=".2f",
+            title="Mode-wise Delay Performance",
             labels={
                 "Average_Delay":
                 "Average Delay (Days)"
@@ -480,18 +781,17 @@ with tab3:
             use_container_width=True
         )
 
+
     with col2:
 
         fig_sla = px.bar(
-            mode_performance,
+            mode_performance.sort_values(
+                "SLA Compliance (%)"
+            ),
             x="Shipping Mode",
             y="SLA Compliance (%)",
-            title="SLA Compliance by Shipping Mode",
             text_auto=".2f",
-            labels={
-                "SLA Compliance (%)":
-                "SLA Compliance (%)"
-            }
+            title="SLA Compliance by Shipping Mode"
         )
 
         st.plotly_chart(
@@ -499,12 +799,81 @@ with tab3:
             use_container_width=True
         )
 
+
     st.subheader(
         "Shipping Mode Performance"
     )
 
+
     st.dataframe(
-        mode_performance.round(2),
+        mode_performance.sort_values(
+            "Delay Frequency (%)",
+            ascending=False
+        ).round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    st.subheader(
+        "Shipping Mode × Delivery Status"
+    )
+
+
+    mode_status = (
+        filtered_df
+        .groupby(
+            [
+                "Shipping Mode",
+                "Delivery Status"
+            ]
+        )
+        .agg(
+            Shipments=(
+                "Delivery Status",
+                "size"
+            ),
+            Average_Delay=(
+                "Delay Gap",
+                "mean"
+            )
+        )
+        .reset_index()
+    )
+
+
+    mode_status[
+        "Share Within Mode (%)"
+    ] = (
+        mode_status["Shipments"]
+        /
+        mode_status.groupby(
+            "Shipping Mode"
+        )["Shipments"]
+        .transform("sum")
+        *
+        100
+    )
+
+
+    fig_mode_status = px.bar(
+        mode_status,
+        x="Shipping Mode",
+        y="Shipments",
+        color="Delivery Status",
+        barmode="group",
+        title="Delivery Status by Shipping Mode"
+    )
+
+
+    st.plotly_chart(
+        fig_mode_status,
+        use_container_width=True
+    )
+
+
+    st.dataframe(
+        mode_status.round(2),
         use_container_width=True,
         hide_index=True
     )
@@ -516,94 +885,161 @@ with tab4:
         "🌍 Regional & Market Heatmaps"
     )
 
+
+    regional_performance = (
+        filtered_df
+        .groupby(
+            "Order Region"
+        )
+        .agg(
+            Total_Shipments=(
+                "Order Region",
+                "size"
+            ),
+            Average_Delay=(
+                "Delay Gap",
+                "mean"
+            ),
+            Delayed_Shipments=(
+                "Delivery Timing",
+                lambda x:
+                (x == "Delayed").sum()
+            )
+        )
+        .reset_index()
+    )
+
+
+    regional_performance[
+        "Regional Delay Index (%)"
+    ] = (
+        regional_performance[
+            "Delayed_Shipments"
+        ]
+        /
+        regional_performance[
+            "Total_Shipments"
+        ]
+        *
+        100
+    )
+
+
+    regional_performance = (
+        regional_performance
+        .sort_values(
+            "Regional Delay Index (%)",
+            ascending=False
+        )
+    )
+
+
+    market_performance = (
+        filtered_df
+        .groupby(
+            "Market"
+        )
+        .agg(
+            Total_Shipments=(
+                "Market",
+                "size"
+            ),
+            Average_Delay=(
+                "Delay Gap",
+                "mean"
+            ),
+            Delayed_Shipments=(
+                "Delivery Timing",
+                lambda x:
+                (x == "Delayed").sum()
+            )
+        )
+        .reset_index()
+    )
+
+
+    market_performance[
+        "Market Delay Index (%)"
+    ] = (
+        market_performance[
+            "Delayed_Shipments"
+        ]
+        /
+        market_performance[
+            "Total_Shipments"
+        ]
+        *
+        100
+    )
+
+
+    market_performance[
+        "Logistics Efficiency Index (%)"
+    ] = (
+        100
+        -
+        market_performance[
+            "Market Delay Index (%)"
+        ]
+    )
+
+
+    region_market_heatmap = (
+        filtered_df
+        .assign(
+            Delayed=(
+                filtered_df[
+                    "Delivery Timing"
+                ]
+                == "Delayed"
+            ).astype(int)
+        )
+        .pivot_table(
+            index="Order Region",
+            columns="Market",
+            values="Delayed",
+            aggfunc="mean"
+        )
+        *
+        100
+    )
+
+
     col1, col2 = st.columns(2)
+
 
     with col1:
 
-        regional_heatmap = (
-            filtered_df
-            .groupby("Order Region")
-            .agg(
-                Total_Shipments=(
-                    "Order Region",
-                    "size"
-                ),
-                Average_Delay=(
-                    "Delay Gap",
-                    "mean"
-                ),
-                Delay_Frequency=(
-                    "Delivery Timing",
-                    lambda x: (
-                        x == "Delayed"
-                    ).mean() * 100
-                )
-            )
-            .reset_index()
-        )
-
-        regional_heatmap = (
-            regional_heatmap
-            .sort_values(
-                "Delay_Frequency",
-                ascending=False
-            )
-        )
-
-        fig_region = px.density_heatmap(
-            regional_heatmap,
-            x="Order Region",
-            y="Delay_Frequency",
-            z="Average_Delay",
-            title="Regional Delay Heatmap",
+        fig_region_heatmap = px.imshow(
+            region_market_heatmap,
+            text_auto=".1f",
+            aspect="auto",
+            title="Regional × Market Delay Heatmap",
             labels={
-                "Order Region": "Region",
-                "Delay_Frequency":
-                "Delay Frequency (%)",
-                "Average_Delay":
-                "Average Delay (Days)"
+                "x": "Market",
+                "y": "Order Region",
+                "color":
+                "Delay Frequency (%)"
             }
         )
 
-        fig_region.update_layout(
-            xaxis_tickangle=-45
-        )
-
         st.plotly_chart(
-            fig_region,
+            fig_region_heatmap,
             use_container_width=True
         )
 
+
     with col2:
 
-        market_efficiency = (
-            filtered_df
-            .groupby("Market")
-            .agg(
-                Total_Shipments=(
-                    "Market",
-                    "size"
-                ),
-                Average_Delay=(
-                    "Delay Gap",
-                    "mean"
-                ),
-                Delay_Frequency=(
-                    "Delivery Timing",
-                    lambda x: (
-                        x == "Delayed"
-                    ).mean() * 100
-                )
-            )
-            .reset_index()
-        )
-
         fig_market = px.bar(
-            market_efficiency,
+            market_performance.sort_values(
+                "Average_Delay",
+                ascending=False
+            ),
             x="Market",
             y="Average_Delay",
-            title="Market-wise Logistics Efficiency",
             text_auto=".2f",
+            title="Market-wise Logistics Efficiency",
             labels={
                 "Average_Delay":
                 "Average Delay (Days)"
@@ -615,22 +1051,92 @@ with tab4:
             use_container_width=True
         )
 
+
     st.subheader(
         "Regional Logistics Performance"
     )
 
+
     st.dataframe(
-        regional_heatmap.round(2),
+        regional_performance.round(2),
         use_container_width=True,
         hide_index=True
     )
+
 
     st.subheader(
         "Market Logistics Performance"
     )
 
+
     st.dataframe(
-        market_efficiency.round(2),
+        market_performance.round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
+    st.subheader(
+        "Country Delay Diagnostics"
+    )
+
+
+    st.caption(
+        "Country delay rates should be interpreted together "
+        "with shipment volume, especially for low-volume countries."
+    )
+
+
+    country_performance = (
+        filtered_df
+        .groupby(
+            "Order Country"
+        )
+        .agg(
+            Total_Shipments=(
+                "Order Country",
+                "size"
+            ),
+            Average_Delay=(
+                "Delay Gap",
+                "mean"
+            ),
+            Delayed_Shipments=(
+                "Delivery Timing",
+                lambda x:
+                (x == "Delayed").sum()
+            )
+        )
+        .reset_index()
+    )
+
+
+    country_performance[
+        "Delay Frequency (%)"
+    ] = (
+        country_performance[
+            "Delayed_Shipments"
+        ]
+        /
+        country_performance[
+            "Total_Shipments"
+        ]
+        *
+        100
+    )
+
+
+    st.dataframe(
+        country_performance.sort_values(
+            [
+                "Delay Frequency (%)",
+                "Total_Shipments"
+            ],
+            ascending=[
+                False,
+                False
+            ]
+        ).round(2),
         use_container_width=True,
         hide_index=True
     )
