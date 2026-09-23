@@ -917,7 +917,6 @@ with tab4:
         "🌍 Regional & Market Heatmaps"
     )
 
-
     regional_performance = (
         filtered_df
         .groupby(
@@ -941,7 +940,6 @@ with tab4:
         .reset_index()
     )
 
-
     regional_performance[
         "Regional Delay Index (%)"
     ] = (
@@ -956,7 +954,6 @@ with tab4:
         100
     )
 
-
     regional_performance = (
         regional_performance
         .sort_values(
@@ -964,7 +961,6 @@ with tab4:
             ascending=False
         )
     )
-
 
     market_performance = (
         filtered_df
@@ -989,7 +985,6 @@ with tab4:
         .reset_index()
     )
 
-
     market_performance[
         "Market Delay Index (%)"
     ] = (
@@ -1004,7 +999,6 @@ with tab4:
         100
     )
 
-
     market_performance[
         "Logistics Efficiency Index (%)"
     ] = (
@@ -1014,162 +1008,6 @@ with tab4:
             "Market Delay Index (%)"
         ]
     )
-
-
-    region_market_heatmap = (
-        filtered_df
-        .assign(
-            Delayed=(
-                filtered_df[
-                    "Delivery Timing"
-                ]
-                == "Delayed"
-            ).astype(int)
-        )
-        .pivot_table(
-            index="Order Region",
-            columns="Market",
-            values="Delayed",
-            aggfunc="mean"
-        )
-        *
-        100
-    )
-
-
-
-    country_map = country_performance.copy()
-
-    country_map["Map Country"] = (
-        country_map["Order Country"]
-        .apply(country_to_map_name)
-    )
-
-    fig_country_map = px.choropleth(
-        country_map,
-        locations="Map Country",
-        locationmode="country names",
-        color="Delay Frequency (%)",
-        hover_name="Order Country",
-        hover_data={
-            "Map Country": False,
-            "Total_Shipments": ":,",
-            "Delayed_Shipments": ":,",
-            "Delay Frequency (%)": ":.2f",
-            "Average_Delay": ":.2f"
-        },
-        color_continuous_scale="Blues",
-        title="Global Geographic Delay Visualization",
-        labels={
-            "Delay Frequency (%)": "Delay Frequency (%)",
-            "Total_Shipments": "Total Shipments",
-            "Delayed_Shipments": "Delayed Shipments",
-            "Average_Delay": "Average Delay (Days)"
-        }
-    )
-
-    fig_country_map.update_geos(
-        showframe=False,
-        showcoastlines=True,
-        showland=True,
-        projection_type="natural earth"
-    )
-
-    fig_country_map.update_layout(
-        height=600,
-        margin=dict(l=0, r=0, t=60, b=0)
-    )
-
-    st.plotly_chart(
-        fig_country_map,
-        use_container_width=True
-    )
-
-    st.caption(
-        "Country color represents delay frequency. Hover over a country for shipment volume, delayed shipments, and average delay."
-    )
-
-    col1, col2 = st.columns(2)
-
-
-    with col1:
-
-        fig_region_heatmap = px.imshow(
-            region_market_heatmap,
-            text_auto=".1f",
-            aspect="auto",
-            title="Regional × Market Delay Heatmap",
-            labels={
-                "x": "Market",
-                "y": "Order Region",
-                "color":
-                "Delay Frequency (%)"
-            }
-        )
-
-        st.plotly_chart(
-            fig_region_heatmap,
-            use_container_width=True
-        )
-
-
-    with col2:
-
-        fig_market = px.bar(
-            market_performance.sort_values(
-                "Average_Delay",
-                ascending=False
-            ),
-            x="Market",
-            y="Average_Delay",
-            text_auto=".2f",
-            title="Market-wise Logistics Efficiency",
-            labels={
-                "Average_Delay":
-                "Average Delay (Days)"
-            }
-        )
-
-        st.plotly_chart(
-            fig_market,
-            use_container_width=True
-        )
-
-
-    st.subheader(
-        "Regional Logistics Performance"
-    )
-
-
-    st.dataframe(
-        regional_performance.round(2),
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    st.subheader(
-        "Market Logistics Performance"
-    )
-
-
-    st.dataframe(
-        market_performance.round(2),
-        use_container_width=True,
-        hide_index=True
-    )
-
-
-    st.subheader(
-        "Country Delay Diagnostics"
-    )
-
-
-    st.caption(
-        "Country delay rates should be interpreted together "
-        "with shipment volume, especially for low-volume countries."
-    )
-
 
     country_performance = (
         filtered_df
@@ -1194,7 +1032,6 @@ with tab4:
         .reset_index()
     )
 
-
     country_performance[
         "Delay Frequency (%)"
     ] = (
@@ -1209,6 +1046,178 @@ with tab4:
         100
     )
 
+    region_market_heatmap = (
+        filtered_df
+        .assign(
+            Delayed=(
+                filtered_df[
+                    "Delivery Timing"
+                ]
+                == "Delayed"
+            ).astype(int)
+        )
+        .pivot_table(
+            index="Order Region",
+            columns="Market",
+            values="Delayed",
+            aggfunc="mean"
+        )
+        *
+        100
+    )
+
+    st.subheader(
+        "🌍 Global Geographic Delay Visualization"
+    )
+
+    country_map = country_performance.copy()
+
+    country_map["Map Country"] = (
+        country_map[
+            "Order Country"
+        ]
+        .apply(country_to_map_name)
+    )
+
+    country_map = country_map[
+        country_map["Map Country"].notna()
+        &
+        (
+            country_map["Map Country"].str.strip() != ""
+        )
+    ]
+
+    fig_country_map = px.choropleth(
+        country_map,
+        locations="Map Country",
+        locationmode="country names",
+        color="Delay Frequency (%)",
+        hover_name="Order Country",
+        hover_data={
+            "Map Country": False,
+            "Total_Shipments": ":,",
+            "Delayed_Shipments": ":,",
+            "Delay Frequency (%)": ":.2f",
+            "Average_Delay": ":.2f"
+        },
+        color_continuous_scale="Blues",
+        title="Global Delivery Delay Frequency",
+        labels={
+            "Delay Frequency (%)":
+            "Delay Frequency (%)",
+            "Total_Shipments":
+            "Total Shipments",
+            "Delayed_Shipments":
+            "Delayed Shipments",
+            "Average_Delay":
+            "Average Delay (Days)"
+        }
+    )
+
+    fig_country_map.update_geos(
+        showframe=False,
+        showcoastlines=True,
+        showland=True,
+        projection_type="natural earth"
+    )
+
+    fig_country_map.update_layout(
+        height=600,
+        margin=dict(
+            l=0,
+            r=0,
+            t=60,
+            b=0
+        )
+    )
+
+    st.plotly_chart(
+        fig_country_map,
+        use_container_width=True
+    )
+
+    st.caption(
+        "Country color represents delay frequency. "
+        "Hover over a country to view shipment volume, "
+        "delayed shipments, and average delay."
+    )
+
+    st.subheader(
+        "Regional × Market Delay Analysis"
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        fig_region_heatmap = px.imshow(
+            region_market_heatmap,
+            text_auto=".1f",
+            aspect="auto",
+            title="Regional × Market Delay Heatmap",
+            labels={
+                "x": "Market",
+                "y": "Order Region",
+                "color":
+                "Delay Frequency (%)"
+            }
+        )
+
+        st.plotly_chart(
+            fig_region_heatmap,
+            use_container_width=True
+        )
+
+    with col2:
+
+        fig_market = px.bar(
+            market_performance.sort_values(
+                "Average_Delay",
+                ascending=False
+            ),
+            x="Market",
+            y="Average_Delay",
+            text_auto=".2f",
+            title="Market-wise Logistics Efficiency",
+            labels={
+                "Average_Delay":
+                "Average Delay (Days)"
+            }
+        )
+
+        st.plotly_chart(
+            fig_market,
+            use_container_width=True
+        )
+
+    st.subheader(
+        "Regional Logistics Performance"
+    )
+
+    st.dataframe(
+        regional_performance.round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.subheader(
+        "Market Logistics Performance"
+    )
+
+    st.dataframe(
+        market_performance.round(2),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    st.subheader(
+        "Country Delay Diagnostics"
+    )
+
+    st.caption(
+        "Country delay rates should be interpreted together "
+        "with shipment volume, especially for low-volume countries."
+    )
 
     st.dataframe(
         country_performance.sort_values(
