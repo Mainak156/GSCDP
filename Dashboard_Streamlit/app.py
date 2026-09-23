@@ -2,6 +2,7 @@ import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from babel import Locale
 
 st.set_page_config(
     page_title="Global Supply Chain Dashboard",
@@ -21,6 +22,37 @@ DATASET_PATH = os.path.join(
 
 ACTUAL_COL = "Days for shipping (real)"
 SCHEDULED_COL = "Days for shipment (scheduled)"
+
+ES_TERRITORIES = Locale("es").territories
+EN_TERRITORIES = Locale("en").territories
+
+COUNTRY_ALIASES = {
+    "Canada": "CA",
+    "Costa de Marfil": "CI",
+    "Guinea-Bissau": "GW",
+    "Hong Kong": "HK",
+    "Macedonia": "MK",
+    "Qatar": "QA",
+    "República Checa": "CZ",
+    "República de Gambia": "GM",
+    "República del Congo": "CG",
+    "Rumania": "RO",
+    "Suazilandia": "SZ",
+    "SudAfrica": "ZA"
+}
+
+SPANISH_COUNTRY_CODES = {
+    name.casefold(): code
+    for code, name in ES_TERRITORIES.items()
+    if len(code) == 2
+}
+
+
+def country_to_map_name(country):
+    code = COUNTRY_ALIASES.get(country)
+    if code is None:
+        code = SPANISH_COUNTRY_CODES.get(country.casefold())
+    return EN_TERRITORIES.get(code, country)
 
 
 def classify_delivery(delay):
@@ -1004,6 +1036,58 @@ with tab4:
         100
     )
 
+
+
+    country_map = country_performance.copy()
+
+    country_map["Map Country"] = (
+        country_map["Order Country"]
+        .apply(country_to_map_name)
+    )
+
+    fig_country_map = px.choropleth(
+        country_map,
+        locations="Map Country",
+        locationmode="country names",
+        color="Delay Frequency (%)",
+        hover_name="Order Country",
+        hover_data={
+            "Map Country": False,
+            "Total_Shipments": ":,",
+            "Delayed_Shipments": ":,",
+            "Delay Frequency (%)": ":.2f",
+            "Average_Delay": ":.2f"
+        },
+        color_continuous_scale="Blues",
+        title="Global Geographic Delay Visualization",
+        labels={
+            "Delay Frequency (%)": "Delay Frequency (%)",
+            "Total_Shipments": "Total Shipments",
+            "Delayed_Shipments": "Delayed Shipments",
+            "Average_Delay": "Average Delay (Days)"
+        }
+    )
+
+    fig_country_map.update_geos(
+        showframe=False,
+        showcoastlines=True,
+        showland=True,
+        projection_type="natural earth"
+    )
+
+    fig_country_map.update_layout(
+        height=600,
+        margin=dict(l=0, r=0, t=60, b=0)
+    )
+
+    st.plotly_chart(
+        fig_country_map,
+        use_container_width=True
+    )
+
+    st.caption(
+        "Country color represents delay frequency. Hover over a country for shipment volume, delayed shipments, and average delay."
+    )
 
     col1, col2 = st.columns(2)
 
