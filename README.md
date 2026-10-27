@@ -262,9 +262,6 @@ B.Tech. in Computer Science and Engineering
 Specialization in Artificial Intelligence and Machine Learning  
 SRM Institute of Science and Technology, Kattankulathur, Tamil Nadu
 
-- **GitHub profile:** [Mainak156](https://github.com/Mainak156)
-- **Live dashboard:** [Open Streamlit App](https://global-supply-chain-operations-dashboard.streamlit.app/)
-
 ---
 
 *This project is intended for educational, analytical, and research purposes. Interpret results within the definitions and limitations described above.*
